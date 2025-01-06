@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import {useState, useCallback, useEffect} from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Tag } from "@/components/ui/tag"
@@ -48,7 +48,8 @@ export default function GalleryPage() {
   const galleryId = params.id as string
 
   const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [images, setImages] = useState<Image[]>(initialImages)
+  const [images, setImages] = useState<Image[]>([])  // 初始化为空数组
+  const [isLoading, setIsLoading] = useState(true)  // 添加加载状态
   const [tags, setTags] = useState<string[]>(initialTags)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [droppedFiles, setDroppedFiles] = useState<File[]>([])
@@ -57,6 +58,43 @@ export default function GalleryPage() {
   const [isImageTagEditorOpen, setIsImageTagEditorOpen] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
+
+  // 添加获取图片的函数
+  const fetchImages = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      // 从数据库获取图片记录
+      const { data: imageRecords, error } = await supabase
+        .from('images')
+        .select('*')
+        .eq('gallery_id', galleryId)
+
+      if (error) {
+        throw error
+      }
+
+      if (imageRecords) {
+        const formattedImages: Image[] = imageRecords.map(record => ({
+          id: record.id,
+          src: record.public_url,
+          alt: record.alt_text,
+          tags: record.tags || []
+        }))
+        setImages(formattedImages)
+      }
+
+    } catch (error) {
+      console.error('Error fetching images:', error)
+      toast.error('Failed to load gallery images')
+    } finally {
+      setIsLoading(false)
+    }
+  }, [galleryId])
+
+  // 组件加载时获取图片
+  useEffect(() => {
+    fetchImages()
+  }, [fetchImages])
 
   const toggleTag = (tag: string) => {
     setSelectedTags(prev => 
@@ -94,7 +132,7 @@ export default function GalleryPage() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
-    accept: ACCEPTED_MIME_TYPES,  // 修改这里
+    accept: ACCEPTED_MIME_TYPES,
     maxSize: MAX_FILE_SIZE
   })
 
@@ -159,7 +197,7 @@ export default function GalleryPage() {
         toast.success(`Successfully uploaded ${file.name}`)
       }
 
-      setImages(prev => [...uploadedImages, ...prev, ]);
+      setImages(prev => [...prev, ...uploadedImages]);
       setIsDialogOpen(false);
       setDroppedFiles([]);
 
@@ -243,11 +281,17 @@ export default function GalleryPage() {
           <Button onClick={() => setIsImageTagEditorOpen(true)} className="bg-purple-600 hover:bg-purple-700 text-white">Edit Tags for Selected Images</Button>
         )}
       </div>
-      <ImageGrid 
-        images={filteredImages} 
-        onImageSelect={handleImageSelect}
-        selectedImages={selectedImages}
-      />
+      {isLoading ? (
+        <div className="flex justify-center items-center min-h-[200px]">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+        </div>
+      ) : (
+        <ImageGrid 
+          images={filteredImages} 
+          onImageSelect={handleImageSelect}
+          selectedImages={selectedImages}
+        />
+      )}
       <UploadDialog 
         isOpen={isDialogOpen} 
         onClose={() => {

@@ -1,51 +1,66 @@
-import Image from "next/image"
-import { Card, CardContent } from "@/components/ui/card"
-import { Tag } from "@/components/ui/tag"
-import { Checkbox } from "@/components/ui/checkbox"
+'use client'
+
+import Image from 'next/image'
+import { useState } from 'react'
 
 interface Image {
-  id: number
+  id: string
   src: string
-  alt: string
+  alt: string | null
   tags: string[]
 }
 
 interface ImageGridProps {
   images: Image[]
-  onImageSelect: (id: number) => void
-  selectedImages: number[]
+  onImageSelect: (id: string) => void
+  selectedImages: string[]
 }
 
 export function ImageGrid({ images, onImageSelect, selectedImages }: ImageGridProps) {
+  const [isLoading, setIsLoading] = useState(true)
+
+  if (!images || images.length === 0) {
+    return null
+  }
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       {images.map((image) => (
-        <Card key={image.id} className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300">
-          <CardContent className="p-0">
-            <div className="relative aspect-video">
-              <Image
-                src={image.src}
-                alt={image.alt}
-                layout="fill"
-                objectFit="cover"
-              />
-              <div className="absolute top-2 left-2">
-                <Checkbox
-                  checked={selectedImages.includes(image.id)}
-                  onCheckedChange={() => onImageSelect(image.id)}
-                  className="bg-white bg-opacity-75 rounded"
-                />
-              </div>
+        <div 
+          key={image.id}
+          className={`relative aspect-video cursor-pointer group ${
+            selectedImages.includes(image.id) ? 'ring-2 ring-purple-600' : ''
+          }`}
+          onClick={() => onImageSelect(image.id)}
+        >
+          <Image
+            src={image.src}
+            alt={image.alt || ''}
+            fill
+            className={`object-cover transition-opacity duration-300 ${
+              isLoading ? 'opacity-0' : 'opacity-100'
+            }`}
+            onLoadingComplete={() => setIsLoading(false)}
+            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+          />
+          {/* Optional overlay for selected state */}
+          {selectedImages.includes(image.id) && (
+            <div className="absolute inset-0 bg-purple-600 bg-opacity-20" />
+          )}
+          {/* Optional tags display */}
+          {image.tags.length > 0 && (
+            <div className="absolute bottom-2 left-2 flex gap-1 flex-wrap">
+              {image.tags.map(tag => (
+                <span 
+                  key={tag} 
+                  className="bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded"
+                >
+                  {tag}
+                </span>
+              ))}
             </div>
-            <div className="p-4 bg-white">
-              <div className="flex flex-wrap gap-2 mt-2">
-                {image.tags.map((tag) => (
-                  <Tag key={tag} variant="secondary" className="bg-purple-100 text-purple-600">{tag}</Tag>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          )}
+        </div>
       ))}
     </div>
   )

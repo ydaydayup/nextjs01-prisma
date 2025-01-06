@@ -72,3 +72,35 @@ model VerificationToken {
 
     @@unique([identifier, token])
 }
+
+model Gallery {
+    id          String   @id @default(cuid())
+    name        String
+    description String
+    createdAt   DateTime @default(now())
+    updatedAt   DateTime @updatedAt
+    images      Image[]
+    user        User     @relation(fields: [userId], references: [id])
+    userId      String
+
+    @@index([name])
+}
+
+model Image {
+    id        String   @id @default(cuid())
+    src       String
+    alt       String?
+    tags      Tag[]
+    gallery   Gallery  @relation(fields: [galleryId], references: [id], onDelete: Cascade)
+    galleryId String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+model Tag {
+    id        String   @id @default(cuid())
+    name      String   @unique
+    images    Image[]
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}

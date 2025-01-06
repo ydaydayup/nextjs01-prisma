@@ -10,13 +10,27 @@ import { TagManager } from "@/components/tag-manager"
 import { ImageTagEditor } from "@/components/image-tag-editor"
 import { useDropzone } from 'react-dropzone'
 import { Button } from "@/components/ui/button"
+import { supabase } from "@/server/db"
+import { toast } from "sonner"
 
 interface Image {
-  id: number
+  id: string
   src: string
-  alt: string
+  alt: string | null
   tags: string[]
 }
+
+// Add file validation constants
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ACCEPTED_MIME_TYPES = {
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/png': ['.png'],
+  'image/gif': ['.gif'],
+  'image/webp': ['.webp']
+};
+// const ACCEPTED_FILE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+// const ACCEPTED_FILE_TYPES = Object.keys(ACCEPTED_MIME_TYPES);
+const ACCEPTED_FILE_TYPES = Object.keys(ACCEPTED_MIME_TYPES);
 
 const initialTags = ["Nature", "Architecture", "Travel", "Food", "Art", "Technology"]
 
@@ -41,6 +55,8 @@ export default function GalleryPage() {
   const [selectedImages, setSelectedImages] = useState<number[]>([])
   const [isTagManagerOpen, setIsTagManagerOpen] = useState(false)
   const [isImageTagEditorOpen, setIsImageTagEditorOpen] = useState(false)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<Record<string, number>>({})
 
   const toggleTag = (tag: string) => {
     setSelectedTags(prev => 
@@ -57,23 +73,104 @@ export default function GalleryPage() {
       )
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    setDroppedFiles(acceptedFiles)
-    setIsDialogOpen(true)
+    // Validate files before setting them
+    const validFiles = acceptedFiles.filter(file => {
+      if (!ACCEPTED_FILE_TYPES.includes(file.type)) {
+        toast.error(`File ${file.name} is not a supported image type`)
+        return false
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`File ${file.name} is too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)`)
+        return false
+      }
+      return true
+    })
+
+    if (validFiles.length > 0) {
+      setDroppedFiles(validFiles)
+      setIsDialogOpen(true)
+    }
   }, [])
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop })
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: ACCEPTED_MIME_TYPES,  // 修改这里
+    maxSize: MAX_FILE_SIZE
+  })
 
   const handleUpload = async () => {
-    const newImages = droppedFiles.map((file, index) => ({
-      id: images.length + index + 1,
-      src: URL.createObjectURL(file),
-      alt: file.name,
-      tags: []
-    }))
-    setImages(prev => [...prev, ...newImages])
-    setIsDialogOpen(false)
-    setDroppedFiles([])
-  }
+    setIsUploading(true)
+    try {
+      const uploadedImages: Image[] = [];
+
+      for (const file of droppedFiles) {
+        // Create a unique file name
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Math.random().toString(36).substring(2)}-${Date.now()}.${fileExt}`;
+        const filePath = `${galleryId}/${fileName}`;
+
+        // Upload file to Supabase Storage with progress tracking
+        const { error: uploadError, data } = await supabase.storage
+          .from('gallery')
+          .upload(filePath, file, {
+            onUploadProgress: (progress) => {
+              setUploadProgress(prev => ({
+                ...prev,
+                [file.name]: Math.round((progress.loaded / progress.total) * 100)
+              }))
+            }
+          });
+
+        if (uploadError) {
+          toast.error(`Error uploading ${file.name}: ${uploadError.message}`)
+          continue;
+        }
+
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('gallery')
+          .getPublicUrl(filePath);
+
+        // Create new image record
+        const newImage = {
+          id: crypto.randomUUID(),
+          src: publicUrl,
+          alt: file.name,
+          tags: []
+        };
+
+        // Add to database
+        const { error: dbError } = await supabase
+          .from('images')
+          .insert({
+            gallery_id: galleryId,
+            storage_path: filePath,
+            public_url: publicUrl,
+            alt_text: file.name,
+            tags: []
+          });
+
+        if (dbError) {
+          toast.error(`Error saving ${file.name} to database: ${dbError.message}`)
+          continue;
+        }
+
+        uploadedImages.push(newImage);
+        toast.success(`Successfully uploaded ${file.name}`)
+      }
+
+      setImages(prev => [...uploadedImages, ...prev, ]);
+      setIsDialogOpen(false);
+      setDroppedFiles([]);
+
+    } catch (error) {
+      console.error('Error uploading files:', error);
+      toast.error('An unexpected error occurred during upload')
+    } finally {
+      setIsUploading(false)
+      setUploadProgress({})
+    }
+  };
 
   const handleImageSelect = (id: number) => {
     setSelectedImages(prev => 
@@ -153,9 +250,18 @@ export default function GalleryPage() {
       />
       <UploadDialog 
         isOpen={isDialogOpen} 
-        onClose={() => setIsDialogOpen(false)}
+        onClose={() => {
+          if (!isUploading) {
+            setIsDialogOpen(false)
+            setDroppedFiles([])
+            setUploadProgress({})
+          }
+        }}
         onConfirm={handleUpload}
         fileCount={droppedFiles.length}
+        isUploading={isUploading}
+        uploadProgress={uploadProgress}
+        files={droppedFiles}
       />
       <TagManager
         isOpen={isTagManagerOpen}
